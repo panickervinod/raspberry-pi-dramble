@@ -1,4 +1,85 @@
 ---
-- include: playbooks/balancer/balancer.yml
-- include: playbooks/database/database.yml
-- include: playbooks/web/web.yml
+- hosts: dramble
+  become: true
+
+  vars_files:
+    - vars/main.yml
+    - config.yml
+
+  pre_tasks:
+    - import_tasks: tasks/test-setup.yml
+      when: deploy_target != 'pi'
+      tags: ['always']
+
+    - name: Ensure dependencies are installed.
+      apt:
+        name:
+          - sudo
+          - openssh-server
+        state: present
+
+    - import_tasks: tasks/cgroup-features.yml
+    - import_tasks: tasks/disable-swap.yml
+      tags: ['always']
+
+    - import_tasks: tasks/iptables-legacy.yml
+      when:
+        - ansible_distribution_version == "10"
+        - deploy_target != 'docker'
+
+    - name: Set the master node IP.
+      set_fact:
+        kubernetes_master_ip: "{{ hostvars['kube1']['ansible_host'] }}"
+      tags: ['always']
+
+  roles:
+    - role: geerlingguy.security
+      tags: ['security']
+
+    - role: geerlingguy.swap
+      tags: ['always', 'swap']
+      when: deploy_target == 'vagrant'
+
+    - role: geerlingguy.nfs
+      tags: ['nfs']
+      when: deploy_target != 'docker'
+
+    - role: geerlingguy.pip
+      tags: ['pip', 'docker']
+
+    - role: geerlingguy.docker_arm
+      tags: ['docker']
+
+    - role: geerlingguy.kubernetes
+      tags: ['kubernetes']
+
+    - role: leds-gpio
+      tags: ['leds']
+      when:
+        - led_enable_gpio | bool
+        - deploy_target == 'pi'
+
+    - role: leds-blinkstick
+      tags: ['leds']
+      when:
+        - led_enable_blinkstick | bool
+
+  tasks:
+    - include_tasks: tasks/nfs.yml
+      tags: ['nfs']
+      when: deploy_target != 'docker'
+
+    - import_tasks: tasks/k8s-registry-setup.yml
+      tags: ['kubernetes']
+
+    - import_tasks: tasks/k8s-services.yml
+      tags: ['kubernetes']
+
+    - import_tasks: tasks/k8s-config.yml
+      tags: ['kubernetes']
+
+    - import_role:
+        name: geerlingguy.k8s_manifests
+      tags: ['kubernetes', 'nfs', 'drupal', 'registry']
+      delegate_to: "{{ groups.dramble[0] }}"
+      run_once: true

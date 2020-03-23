@@ -1,0 +1,28 @@
+---
+- name: Ensure Pip is installed.
+  apt: name=python-pip state=present
+
+- name: Ensure blinkstick is installed.
+  pip: name=blinkstick state=present
+
+- name: Ensure blinkstick-leds folder exists.
+  file:
+    path: /opt/blinkstick-leds
+    state: directory
+    mode: 0755
+
+- name: Copy Blinkstick control scripts into place.
+  template:
+    src: "{{ item }}.j2"
+    dest: "/opt/blinkstick-leds/{{ item }}"
+    mode: 0755
+  with_items: "{{ blinkstick_scripts }}"
+
+- name: Make Blinkstick control scripts available in the user's PATH.
+  file:
+    path: "/usr/bin/{{ item }}"
+    src: "/opt/blinkstick-leds/{{ item }}"
+    state: link
+  with_items: "{{ blinkstick_scripts }}"
+
+- include_tasks: systemd-service.yml

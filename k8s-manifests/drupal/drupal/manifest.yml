@@ -1,0 +1,146 @@
+# Drupal ConfigMap.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: drupal-config
+  namespace: {{ manifest_namespace }}
+data:
+  DRUPAL_DATABASE_HOST: 'mysql.drupal.svc.cluster.local'
+  DRUPAL_DATABASE_PORT: '3306'
+  DRUPAL_DATABASE_NAME: 'drupal'
+  DRUPAL_DATABASE_USERNAME: 'drupal'
+  DRUPAL_HASH_SALT: '{{ drupal_hash_salt }}'
+  DRUPAL_DOWNLOAD_IF_NOT_PRESENT: '{{ drupal_download_if_not_present }}'
+  DRUPAL_DOWNLOAD_VERIFY_CERT: 'false'
+
+# PersistentVolumeClaim for Drupal files.
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: drupal-files
+  namespace: {{ manifest_namespace }}
+  labels:
+    app: drupal
+  annotations:
+    volume.beta.kubernetes.io/storage-class: "pidramble-nfs"
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Mi
+
+# Drupal Deployment definition.
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: drupal
+  namespace: {{ manifest_namespace }}
+  labels:
+    app: drupal
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: drupal
+      tier: frontend
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: drupal
+        tier: frontend
+    spec:
+      containers:
+        - image: {{ drupal_docker_image }}
+          imagePullPolicy: IfNotPresent
+          name: drupal
+          envFrom:
+          - configMapRef:
+              name: drupal-config
+          env:
+            - name: DRUPAL_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-pass
+                  key: drupal-mysql-pass
+          ports:
+            - containerPort: 80
+              name: drupal
+          volumeMounts:
+            - mountPath: {{ drupal_files_dir }}
+              name: drupal-files
+          resources:
+            limits:
+              cpu: '1'
+              memory: '512Mi'
+            requests:
+              cpu: '500m'
+              memory: '256Mi'
+      volumes:
+        - name: drupal-files
+          persistentVolumeClaim:
+            claimName: drupal-files
+      tolerations:
+      - effect: NoExecute
+        key: node.kubernetes.io/not-ready
+        operator: Exists
+        tolerationSeconds: {{ kubernetes_toleration_not_ready }}
+      - effect: NoExecute
+        key: node.kubernetes.io/unreachable
+        operator: Exists
+        tolerationSeconds: {{ kubernetes_toleration_not_ready }}
+
+# Drupal Service definition.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: drupal
+  namespace: {{ manifest_namespace }}
+  labels:
+    app: drupal
+spec:
+  ports:
+    - port: 80
+  selector:
+    app: drupal
+    tier: frontend
+  type: NodePort
+
+# Drupal Ingress.
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: drupal-ingress
+  namespace: {{ manifest_namespace }}
+  annotations: {}
+spec:
+  rules:
+  - host: {{ drupal_domain }}
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: drupal
+          servicePort: 80
+
+# Drupal Horizontal Pod Autoscaler.
+---
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: drupal
+  namespace: {{ manifest_namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: drupal
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 50

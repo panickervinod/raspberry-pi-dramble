@@ -1,0 +1,122 @@
+# MySQL ConfigMap.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-config
+  namespace: {{ manifest_namespace }}
+data:
+  MYSQL_DATABASE: drupal
+  MYSQL_USER: drupal
+
+# MySQL Secret.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-pass
+  namespace: {{ manifest_namespace }}
+data:
+  drupal-mysql-pass: {{ mysql_drupal_password | b64encode }}
+  drupal-mysql-root-pass: {{ mysql_root_password | b64encode }}
+
+# PersistentVolumeClaim for Drupal MySQL database.
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: drupal-db
+  namespace: {{ manifest_namespace }}
+  labels:
+    app: drupal
+  annotations:
+    volume.beta.kubernetes.io/storage-class: "pidramble-nfs"
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Mi
+
+# MySQL Deployment.
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: mysql
+  namespace: {{ manifest_namespace }}
+  labels:
+    app: drupal
+spec:
+  selector:
+    matchLabels:
+      app: drupal
+      tier: mysql
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: drupal
+        tier: mysql
+    spec:
+      containers:
+      - image: {{ mysql_container_image }}
+        imagePullPolicy: IfNotPresent
+        name: mysql
+        envFrom:
+        - configMapRef:
+            name: mysql-config
+        env:
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-pass
+              key: drupal-mysql-pass
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-pass
+              key: drupal-mysql-root-pass
+        ports:
+        - containerPort: 3306
+          name: mysql
+        volumeMounts:
+        - name: mysql-persistent-storage
+          mountPath: /var/lib/mysql
+        resources:
+          limits:
+            cpu: '2'
+            memory: '768Mi'
+          requests:
+            cpu: '500m'
+            memory: '512Mi'
+      volumes:
+      - name: mysql-persistent-storage
+        persistentVolumeClaim:
+          claimName: drupal-db
+      tolerations:
+      - effect: NoExecute
+        key: node.kubernetes.io/not-ready
+        operator: Exists
+        tolerationSeconds: {{ kubernetes_toleration_not_ready }}
+      - effect: NoExecute
+        key: node.kubernetes.io/unreachable
+        operator: Exists
+        tolerationSeconds: {{ kubernetes_toleration_not_ready }}
+
+# MySQL Service.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: {{ manifest_namespace }}
+  labels:
+    app: drupal
+spec:
+  ports:
+  - port: 3306
+  selector:
+    app: drupal
+    tier: mysql
+  clusterIP: None

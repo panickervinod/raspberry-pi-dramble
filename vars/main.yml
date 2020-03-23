@@ -1,0 +1,64 @@
+---
+# Docker configuration.
+docker_install_compose: false
+docker_users:
+  - pi
+
+# Kubernetes configuration.
+kubernetes_allow_pods_on_master: false
+kubernetes_version: '1.15'
+kubernetes_packages:
+  - name: kubelet=1.15.0-00
+    state: present
+  - name: kubectl=1.15.0-00
+    state: present
+  - name: kubeadm=1.15.0-00
+    state: present
+  - name: kubernetes-cni
+    state: present
+
+k8s_manage_namespace: false
+k8s_no_log: false
+k8s_manifests_base_dir: k8s-manifests/
+k8s_manifests:
+  - nfs/rbac
+  - nfs/deployment
+  - kube-system/ingress/rbac
+  - kube-system/ingress/deployment
+  - dir: docker-registry
+    namespace: registry
+  - dir: drupal/mysql
+    namespace: drupal
+  - dir: drupal/drupal
+    namespace: drupal
+
+kubernetes_toleration_not_ready: 300
+
+# Python settings and dependencies.
+pip_package: python3-pip
+pip_executable: pip3
+pip_install_packages:
+  - openshift
+
+# Swap configuration.
+swap_file_state: absent
+swap_file_path: /dev/mapper/packer--debian--10--amd64--vg-swap_1
+
+# See: https://github.com/docker-library/mysql/issues/318
+mysql_container_image: hypriot/rpi-mysql:5.5
+
+# Image to use for the traefik-ingress-controller daemonset.
+traefik_image: traefik:1.7
+
+# Image to use for the metrics-server deployment.
+metrics_server_image: gcr.io/google_containers/metrics-server-arm:v0.3.2
+
+# Image to use for nfs-client deployment.
+nfs_client_image: quay.io/external_storage/nfs-client-provisioner-arm:latest
+
+# NFS configuration.
+nfs_share_dir: /srv/nfs
+nfs_exports: { "/srv/nfs *(rw,sync,no_root_squash,no_subtree_check)" }
+# nfs_mount_dir: /mnt/nfs # defined in global vars file.
+nfs_extra_dirs:
+  - k8s

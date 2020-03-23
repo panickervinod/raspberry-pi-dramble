@@ -1,0 +1,38 @@
+---
+- name: Copy Kubernetes definition files to the cluster.
+  template:
+    src: "{{ item }}"
+    dest: "~/{{ item | basename }}"
+  with_fileglob: "k8s-manifests/kube-system/*.yml"
+  delegate_to: "{{ groups.dramble[0] }}"
+  run_once: True
+
+- name: Ensure metrics-server directory exists.
+  file:
+    path: "~/metrics-server"
+    state: directory
+
+- name: Download the metrics-server project from GitHub.
+  unarchive:
+    src: https://github.com/kubernetes-incubator/metrics-server/archive/master.tar.gz
+    dest: "~/metrics-server"
+    remote_src: yes
+    extra_opts: [ "--strip-components=1" ]
+    creates: "~/metrics-server/README.md"
+  register: metrics_server_download
+  run_once: True
+  delegate_to: "{{ groups.dramble[0] }}"
+
+- name: Overwrite metrics-server deployment manifest.
+  template:
+    src: k8s-manifests/kube-system/metrics-server-deployment.yaml
+    dest: "~/metrics-server/deploy/kubernetes/metrics-server-deployment.yaml"
+  run_once: True
+  delegate_to: "{{ groups.dramble[0] }}"
+
+# TODO: This task should do an *apply* if the deployment task above was changed.
+- name: Apply metrics-server services to the cluster.
+  command: kubectl create -f ~/metrics-server/deploy/kubernetes/
+  when: metrics_server_download is changed
+  run_once: True
+  delegate_to: "{{ groups.dramble[0] }}"

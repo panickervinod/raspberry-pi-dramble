@@ -7,8 +7,7 @@ ff02::2   ip6-allrouters
 
 127.0.1.1 {{ dramble_hostname }}
 
-10.0.1.60 pidramble.com www.pidramble.com bal1.pidramble.com git.pidramble.com
-10.0.1.61 www1.pidramble.com
-10.0.1.62 www2.pidramble.com
-10.0.1.63 db1.pidramble.com
-10.0.1.64 db2.pidramble.com
+{# Add an entry for each host in the cluster, using the loop index to map IPs #}
+{% for host in groups['dramble'] %}
+10.0.100.{{ 60 + loop.index }} kube{{ loop.index }} kube{{ loop.index }}.pidramble.com
+{% endfor %}
